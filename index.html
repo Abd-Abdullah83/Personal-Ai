@@ -148,10 +148,11 @@
     <div class="cmd-list" id="chips"></div>
   </div>
 
+<script src="config.js"></script> 
+
 <script>
-  // ── PASTE YOUR GEMINI API KEY HERE ──────────────────────────
-  const API_KEY = process.env.API_KEY;
-  // ────────────────────────────────────────────────────────────
+  // 2. Access the key from the CONFIG object
+  const API_KEY = CONFIG.API_KEY;
 
   const SAMPLE_COMMANDS = [
     "What's the time?", "What's the weather?", "Tell me a joke",
