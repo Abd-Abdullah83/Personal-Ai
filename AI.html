@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Personal AI Assistant</title>
+  <link rel="manifest" href="manifest.json" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: sans-serif;
+      background: #0f0f1a;
+      color: #e0e0e0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 24px 16px;
+    }
+    h1 { font-size: 22px; color: #a78bfa; margin-bottom: 6px; }
+    .subtitle { font-size: 13px; color: #666; margin-bottom: 24px; }
+
+    #chat-box {
+      width: 100%;
+      max-width: 480px;
+      background: #1a1a2e;
+      border-radius: 16px;
+      padding: 16px;
+      min-height: 260px;
+      max-height: 420px;
+      overflow-y: auto;
+      margin-bottom: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .msg {
+      padding: 10px 14px;
+      border-radius: 12px;
+      font-size: 15px;
+      max-width: 90%;
+      line-height: 1.5;
+    }
+    .msg.user { background: #4f46e5; color: #fff; align-self: flex-end; }
+    .msg.ai   { background: #1e293b; color: #e2e8f0; align-self: flex-start; }
+    .msg.sys  { background: #1c1c1c; color: #888; font-size: 13px; align-self: center; }
+
+    #status-bar {
+      font-size: 14px;
+      color: #a78bfa;
+      margin-bottom: 16px;
+      min-height: 20px;
+    }
+
+    .controls {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      width: 100%;
+      max-width: 480px;
+    }
+    #text-input {
+      flex: 1;
+      padding: 12px 16px;
+      border-radius: 30px;
+      border: 1px solid #333;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-size: 15px;
+      outline: none;
+    }
+    #text-input:focus { border-color: #4f46e5; }
+
+    #mic-btn {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: #4f46e5;
+      border: none;
+      cursor: pointer;
+      font-size: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s, transform 0.1s;
+      flex-shrink: 0;
+    }
+    #mic-btn.listening { background: #e53935; animation: pulse 1s infinite; }
+    #mic-btn:active { transform: scale(0.94); }
+
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(229,57,53,0.4); }
+      50%       { box-shadow: 0 0 0 12px rgba(229,57,53,0); }
+    }
+
+    #send-btn {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: #1e293b;
+      border: 1px solid #333;
+      color: #a78bfa;
+      cursor: pointer;
+      font-size: 18px;
+    }
+
+    .commands-hint {
+      margin-top: 24px;
+      width: 100%;
+      max-width: 480px;
+      background: #1a1a2e;
+      border-radius: 12px;
+      padding: 14px 16px;
+    }
+    .commands-hint h3 { font-size: 13px; color: #666; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+    .cmd-list { display: flex; flex-wrap: wrap; gap: 8px; }
+    .cmd-chip {
+      background: #1e293b;
+      border: 1px solid #333;
+      border-radius: 20px;
+      padding: 5px 12px;
+      font-size: 13px;
+      color: #94a3b8;
+      cursor: pointer;
+    }
+    .cmd-chip:hover { border-color: #4f46e5; color: #a78bfa; }
+  </style>
+</head>
+<body>
+
+  <h1>🤖 Personal AI Assistant</h1>
+  <p class="subtitle">Voice or type — powered by Gemini · 100% Free</p>
+
+  <div id="chat-box">
+    <div class="msg sys">Hello! Tap the mic or type a command.</div>
+  </div>
+
+  <div id="status-bar">Ready</div>
+
+  <div class="controls">
+    <input id="text-input" type="text" placeholder="Type a command..." onkeydown="if(event.key==='Enter') sendText()" />
+    <button id="send-btn" onclick="sendText()">➤</button>
+    <button id="mic-btn" onclick="toggleMic()">🎤</button>
+  </div>
+
+  <div class="commands-hint">
+    <h3>Try saying...</h3>
+    <div class="cmd-list" id="chips"></div>
+  </div>
+
+<script>
+  // ── PASTE YOUR GEMINI API KEY HERE ──────────────────────────
+  const API_KEY = "AIzaSyBFab2fziYgWGRcQbaGiM49I9OqWnJIDUw";
+  // ────────────────────────────────────────────────────────────
+
+  const SAMPLE_COMMANDS = [
+    "What's the time?", "What's the weather?", "Tell me a joke",
+    "Set a 5 minute timer", "Search for FAST University",
+    "Open YouTube", "Open Google Maps", "Explain machine learning",
+    "Send WhatsApp message", "Post on Twitter"
+  ];
+
+  // Build chips
+  const chipsEl = document.getElementById("chips");
+  SAMPLE_COMMANDS.forEach(c => {
+    const el = document.createElement("div");
+    el.className = "cmd-chip";
+    el.textContent = c;
+    el.onclick = () => handleCommand(c);
+    chipsEl.appendChild(el);
+  });
+
+  // ── SPEECH RECOGNITION ──────────────────────────────────────
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let recognition = null;
+  let isListening = false;
+
+  if (SpeechRecognition) {
+    recognition = new SpeechRecognition();
+    recognition.lang = "en-US";
+    recognition.interimResults = false;
+
+    recognition.onresult = (e) => {
+      const command = e.results[0][0].transcript;
+      addMessage(command, "user");
+      stopListening();
+      handleCommand(command);
+    };
+    recognition.onerror = () => {
+      stopListening();
+      setStatus("Mic error — check permissions");
+    };
+    recognition.onend = () => stopListening();
+  }
+
+  function toggleMic() {
+    if (!recognition) { alert("Voice not supported. Use Chrome browser."); return; }
+    isListening ? stopListening() : startListening();
+  }
+  function startListening() {
+    isListening = true;
+    document.getElementById("mic-btn").classList.add("listening");
+    document.getElementById("mic-btn").textContent = "⏹";
+    setStatus("Listening...");
+    recognition.start();
+  }
+  function stopListening() {
+    isListening = false;
+    document.getElementById("mic-btn").classList.remove("listening");
+    document.getElementById("mic-btn").textContent = "🎤";
+    try { recognition.stop(); } catch(_) {}
+  }
+
+  function sendText() {
+    const input = document.getElementById("text-input");
+    const val = input.value.trim();
+    if (!val) return;
+    addMessage(val, "user");
+    input.value = "";
+    handleCommand(val);
+  }
+
+  // ── COMMAND ROUTER ───────────────────────────────────────────
+  async function handleCommand(cmd) {
+    const q = cmd.toLowerCase();
+
+    // Date / Time
+    if (q.includes("time") || q.includes("date")) {
+      const now = new Date();
+      const reply = `It is ${now.toLocaleDateString("en-PK", {weekday:"long",year:"numeric",month:"long",day:"numeric"})} and the time is ${now.toLocaleTimeString("en-PK")}.`;
+      respond(reply); return;
+    }
+
+    // Weather
+    if (q.includes("weather") || q.includes("temperature")) {
+      await getWeather(); return;
+    }
+
+    // Timer / Alarm
+    const timerMatch = cmd.match(/(\d+)\s*(minute|min|second|sec|hour)/i);
+    if (timerMatch || q.includes("timer") || q.includes("alarm")) {
+      const num = timerMatch ? parseInt(timerMatch[1]) : 5;
+      const unit = timerMatch ? timerMatch[2].toLowerCase() : "minute";
+      setTimer(num, unit); return;
+    }
+
+    // Phone call
+    const callMatch = cmd.match(/call\s+([\+\d\s]+)/i);
+    if (callMatch) {
+      const num = callMatch[1].replace(/\s/g,"");
+      respond(`Calling ${num}...`);
+      window.open("tel:" + num); return;
+    }
+
+    // SMS
+    if (q.includes("sms") || q.includes("text message")) {
+      const parts = cmd.match(/(?:sms|text message)\s*([\+\d]+)?\s*(?:saying|say|with)?\s*(.*)/i);
+      const num = parts?.[1] || "";
+      const body = parts?.[2] || "";
+      respond(`Opening messages app...`);
+      window.open(`sms:${num}?body=${encodeURIComponent(body)}`); return;
+    }
+
+    // WhatsApp
+    if (q.includes("whatsapp")) {
+      const text = cmd.replace(/whatsapp|send|message/gi,"").trim();
+      respond("Opening WhatsApp...");
+      window.open("https://wa.me/?text=" + encodeURIComponent(text)); return;
+    }
+
+    // Twitter / X
+    if (q.includes("twitter") || q.includes("tweet") || q.includes("post on x")) {
+      const text = cmd.replace(/twitter|tweet|post on x|post on twitter/gi,"").trim();
+      respond("Opening Twitter/X to post...");
+      window.open("https://twitter.com/intent/tweet?text=" + encodeURIComponent(text)); return;
+    }
+
+    // Facebook
+    if (q.includes("facebook")) {
+      respond("Opening Facebook...");
+      window.open("https://facebook.com"); return;
+    }
+
+    // Instagram
+    if (q.includes("instagram")) {
+      respond("Opening Instagram...");
+      window.open("https://instagram.com"); return;
+    }
+
+    // YouTube search
+    if (q.includes("youtube") || q.includes("play")) {
+      const query = cmd.replace(/youtube|search|play|on/gi,"").trim();
+      respond("Opening YouTube...");
+      window.open("https://youtube.com/results?search_query=" + encodeURIComponent(query)); return;
+    }
+
+    // Google Maps
+    if (q.includes("map") || q.includes("directions") || q.includes("navigate")) {
+      const place = cmd.replace(/map|maps|directions|navigate|to|open/gi,"").trim();
+      respond(`Opening maps for "${place}"...`);
+      window.open("https://maps.google.com/?q=" + encodeURIComponent(place)); return;
+    }
+
+    // Google Search
+    if (q.includes("search") || q.includes("google")) {
+      const query = cmd.replace(/search for|search|google/gi,"").trim();
+      respond(`Searching for "${query}"...`);
+      window.open("https://google.com/search?q=" + encodeURIComponent(query)); return;
+    }
+
+    // Open website
+    if (q.includes("open ")) {
+      const site = cmd.replace(/open/i,"").trim();
+      respond(`Opening ${site}...`);
+      window.open("https://" + site.replace(/\s/g,"")); return;
+    }
+
+    // Fallback → Gemini AI
+    await askGemini(cmd);
+  }
+
+  // ── GEMINI AI ────────────────────────────────────────────────
+  async function askGemini(prompt) {
+    setStatus("Asking Gemini AI...");
+    try {
+      const res = await fetch(
+       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${API_KEY}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            systemInstruction: {
+              parts: [{ text: "You are a helpful, friendly voice assistant named Aria. Keep answers short and conversational. No markdown formatting, no bullet points. Just plain spoken-style sentences." }]
+            },
+            generationConfig: { maxOutputTokens: 200, temperature: 0.7 }
+          })
+        }
+      );
+      const data = await res.json();
+      const answer = data?.candidates?.[0]?.content?.parts?.[0]?.text || "Sorry, I didn't get a response.";
+      respond(answer);
+    } catch (e) {
+      respond("Sorry, I couldn't connect. Check your API key or internet.");
+    }
+  }
+
+  // ── WEATHER ──────────────────────────────────────────────────
+  async function getWeather() {
+    setStatus("Getting your location...");
+    if (!navigator.geolocation) { respond("Geolocation not supported."); return; }
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      const { latitude: lat, longitude: lon } = pos.coords;
+      try {
+        const res = await fetch(
+          `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,weathercode,windspeed_10m&timezone=auto`
+        );
+        const d = await res.json();
+        const c = d.current;
+        const desc = weatherDesc(c.weathercode);
+        respond(`Current weather: ${desc}. Temperature is ${c.temperature_2m}°C with humidity at ${c.relative_humidity_2m}% and wind speed ${c.windspeed_10m} km/h.`);
+      } catch { respond("Could not fetch weather data."); }
+    }, () => respond("Location access denied. Please allow location."));
+  }
+
+  function weatherDesc(code) {
+    if (code === 0) return "clear sky";
+    if (code <= 3) return "partly cloudy";
+    if (code <= 9) return "foggy";
+    if (code <= 19) return "drizzle";
+    if (code <= 29) return "rain";
+    if (code <= 39) return "snow";
+    if (code <= 49) return "hail";
+    if (code <= 59) return "thunderstorm";
+    return "mixed conditions";
+  }
+
+  // ── TIMER ────────────────────────────────────────────────────
+  function setTimer(num, unit) {
+    let ms = num * 1000;
+    if (unit.startsWith("min")) ms = num * 60 * 1000;
+    if (unit.startsWith("hour")) ms = num * 3600 * 1000;
+    respond(`Timer set for ${num} ${unit}${num > 1 ? "s" : ""}. I'll notify you.`);
+    Notification.requestPermission().then(perm => {
+      setTimeout(() => {
+        if (perm === "granted") {
+          new Notification("⏰ Timer Done!", { body: `Your ${num} ${unit} timer is up!` });
+        }
+        respond(`⏰ Your ${num} ${unit} timer is done!`);
+        speak(`Your ${num} ${unit} timer is done!`);
+      }, ms);
+    });
+  }
+
+  // ── SPEECH SYNTHESIS ─────────────────────────────────────────
+  function speak(text) {
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = 1.05;
+    window.speechSynthesis.speak(u);
+  }
+
+  // ── UI HELPERS ───────────────────────────────────────────────
+  function respond(text) {
+    addMessage(text, "ai");
+    speak(text);
+    setStatus("Ready");
+  }
+
+  function addMessage(text, type) {
+    const box = document.getElementById("chat-box");
+    const div = document.createElement("div");
+    div.className = "msg " + type;
+    div.textContent = text;
+    box.appendChild(div);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function setStatus(text) {
+    document.getElementById("status-bar").textContent = text;
+  }
+</script>
+</body>
+</html>
