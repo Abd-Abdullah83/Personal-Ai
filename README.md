@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🤖 Personal AI Assistant — *Aria*
+# 🤖 Personal AI Assistant — *Aria.*
 
 ### Voice · Chat · Smart Commands · Powered by Gemini 2.5 Flash
 
